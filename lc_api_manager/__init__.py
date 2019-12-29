@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-## make-release.sh
+## -*- coding: UTF-8 -*-
+## init.py
 ##
 ## Copyright (c) 2019 libcommon
 ##
@@ -22,25 +22,4 @@
 ## SOFTWARE.
 
 
-if [ $# -ge 1 ]
-then
-    ./scripts/remove-tests.sh "${@}"
-fi
-
-for FILENAME in "pylintrc" "requirements-dev.txt"
-do
-    if [ -f $FILENAME ]
-    then
-        echo "::: INFO: Removing $FILENAME"
-        rm $FILENAME
-    fi
-done 
-
-for DIRECTORY in "__pycache__" ".mypy_cache" "scripts" "venv"
-do
-    if [ -d $DIRECTORY ]
-    then
-        echo "::: INFO: Removing $DIRECTORY"
-        rm -rf $DIRECTORY
-    fi
-done 
+__author__ = "libcommon"
