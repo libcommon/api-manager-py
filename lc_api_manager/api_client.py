@@ -22,17 +22,16 @@
 ## SOFTWARE.
 
 
-from typing import TypeVar
+from typing import Any, Optional
 
-from .lib.cache import gen_python_hash
+from lc_cache import gen_python_hash
 
 
 __author__ = "libcommon"
-T = TypeVar("T")
 
 
 class RateLimitReachedError(ConnectionError):
-    """Signals that an API response was received with a 
+    """Signals that an API response was received
     that stated the rate limit has been reached. This lets
     the API manager know its accounting system has
     failed and _should_ trigger an appropriate action from
@@ -43,13 +42,13 @@ class RateLimitReachedError(ConnectionError):
 class APIClient:
     """Interface for API clients to use with an APIManager."""
 
-    def gen_request_hash(self, *args, **kwargs) -> Any:
+    def gen_request_hash(self, *args, **kwargs) -> Any: # pylint: disable=R0201
         """
         Args:
             Takes any positional or keyword arguments
         Returns:
             Unique hash of positional and keyword arguments.  Default implementation uses
-            Python's native hashing function to produce an int (see: lib.cache.gen_python_hash).
+            Python's native hashing function to produce an int (see: cache.gen_python_hash).
             Child classes may override this method, though the parameters should match the
             query method signature.
         Preconditions:
@@ -59,7 +58,7 @@ class APIClient:
         """
         return hash((gen_python_hash(args), gen_python_hash(kwargs)))
 
-    def process_response_for_cache(self, response: Optional[T]):
+    def process_response_for_cache(self, response: Optional[Any]):  # pylint: disable=R0201
         """
         Args:
             response    => API response
@@ -83,6 +82,6 @@ class APIClient:
         Preconditions:
             N/A
         Raises:
-            N/A
+            RateLimitReachedError: if API signals that rate limit has been reached
         """
         raise NotImplementedError("request not implemented for type {}".format(type(self).__name__))

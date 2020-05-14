@@ -23,18 +23,22 @@
 
 
 from datetime import datetime
+import os
 import time
+from typing import Any, Optional
+
+from lc_cache import Cache
 
 from .api_client import APIClient, RateLimitReachedError
-from .lib.cache import Cache
 
 
 __author__ = "libcommon"
 
 
 class APIManager:
-    """Manage requests to an API to transparently respect rate limits and cache
-    requests to reduce duplicative requests."""
+    """Manage requests to an API while transparently respecting rate limits
+    and caching requests to reduce duplicative requests.
+    """
     __slots__ = (
         "cache",
         "interval",
@@ -43,7 +47,9 @@ class APIManager:
         "_cache_on_failure",
         "_client",
         "_count",
-        "_start_time")
+        "_start_time",
+        "_update_state_before_request",
+    )
 
     def __init__(self,
                  interval: int,
@@ -51,41 +57,43 @@ class APIManager:
                  client: APIClient,
                  cache: Cache,
                  interval_buffer: int = 3,
-                 cache_on_failure: bool = True) -> None:
-        if interval <= 0: raise ValueError("Interval must be greater than 0")
-        if threshold <= 0: raise ValueError("Threshold must be greater than 0")
-        if interval_buffer < 0: raise ValueError("Interval buffer must be greater than or equal to 0")
+                 cache_on_failure: bool = True,
+                 update_state_before_request: bool = False) -> None:
+        if interval <= 0:
+            raise ValueError("Interval must be greater than 0")
+        if threshold <= 0:
+            raise ValueError("Threshold must be greater than 0")
+        if interval_buffer < 0:
+            raise ValueError("Interval buffer must be greater than or equal to 0")
 
         self.interval = interval + interval_buffer
         self.threshold = threshold
         self._client = client
         self.cache = cache
         self._cache_on_failure = cache_on_failure
-        self._count, self._start_time = self.gen_initial_state()
+        self._update_state_before_request = update_state_before_request
+        self._count = 0
+        self._start_time: Optional[float] = None
+        self.update_state()
 
-    def gen_initial_state(self) -> Tuple[int, Optional[float]]:
+    def update_state(self):  # pylint: disable=R0201
         """
         Args:
             N/A
-        Returns:
-            Initial count and start time.  Default implementation sets state
-            as if no API requests have been made.  In situations where multiple
-            programs, or multiple runs of the same program, are using the same API,
-            child classes may override this function to set the actual count and start time.
-            For example, suppose an API has a rate limit of 5,000 requests/hour, and provides
-            an endpoint "/api/v1/rate_limit" that returns the number of requests made toward
-            the rate limit.  A child class could make a request to that API when the APIManager
-            is instantiated to properly set count and start time, otherwise the API manager
-            would be ineffective.
+        Procedure:
+            Update rate limit count and start time. Default implementation
+            is a NOOP. In situations where multiple programs, or multiple runs
+            of the same program, are using the same API, child classes may override
+            this function to set the actual count and start time. For example, suppose an
+            API has a rate limit of 5,000 requests/hour, and provides an endpoint "/api/v1/rate_limit"
+            that returns the number of requests made toward the rate limit. A child class
+            could make a request to that API when the APIManager is instantiated to properly
+            set count and start time, otherwise the API manager would be ineffective.
             NOTE:
                 When setting start time from an API response, ensure the timezone is UTC to
                 avoid any incongruence with reset_state.
-        Preconditions:
-            N/A
-        Raises:
-            N/A
         """
-        return 0, None
+        return None
 
     def reset_state(self) -> None:
         """
@@ -96,8 +104,6 @@ class APIManager:
             Even though this method is public, you should not use it unless you know what you're doing.
         Preconditions:
             N/A
-        Raises:
-            ValueError: if start time is set to be ahead of the time at which this method is called
         """
         self._count = 0
         self._start_time = datetime.utcnow().timestamp()
@@ -144,7 +150,7 @@ class APIManager:
         if self.gen_remaining_time() > self.interval:
             self.reset_state()
         return self.threshold - self._count
-    
+
     def _defer_until_next_interval(self) -> None:
         """
         Args:
@@ -168,37 +174,34 @@ class APIManager:
         # Reset state
         self.reset_state()
 
-    def _make_request(self, rate_limit_reached: bool, *args, **kwargs) -> Optional[Any]:
+    def _make_request(self, request_hash: Any, *args, **kwargs) -> Optional[Any]:
         """
         Args:
-            rate_limit_reached  => signal of whether rate limit has been reached
-                                   to be passed back to caller
+            request_hash    => hash of request parameters
         Returns:
             Attempt API request and, if successful, add response to cache and return it.
             If rate limit is reached, returns None.
         Preconditions:
             N/A
         Raises:
-            Exception: if API request fails (other than a RateLimitReachedError)
+            RateLimitReachedError: if API rate limit reached
+            Exception: if API request fails
         """
         try:
             # Submit request to API and get response
             response = self._client.request(*args, **kwargs)
-            # Signal that response was successful
-            response_was_successful = True
             # Process response and insert into cache
-            self.cache.insert(self._client.process_response_for_cache(response))
+            self.cache.insert(request_hash, self._client.process_response_for_cache(response))
             return response
-        except RateLimitReachedError:
-            # Signal that API response stated the API rate limit was reached.
-            # This will cause the API manager to sleep for the remainder of the
-            # interval.  See api_client.RateLimitReachedError.
-            rate_limit_reached = True
-            return None
         except Exception as exc:
-            # If caching failed requests, process and insert into cache
-            if self._cache_on_failure:
-                self.cache.insert(self._client.process_response_for_cache(None))
+            # If error didn't arise due to rate limit being reached
+            if not isinstance(exc, RateLimitReachedError):
+                # If caching failed requests, process and insert into cache
+                if self._cache_on_failure:
+                    self.cache.insert(self._client.process_response_for_cache(None))
+            # Otherwise, set state to reflect that rate limit was reached
+            else:
+                self._count = self.threshold
             raise
         finally:
             # NOTE: Increment count on successful and failed API requests, because
@@ -217,7 +220,7 @@ class APIManager:
         Preconditions:
             N/A
         Raises:
-            
+
         """
         # Generate request hash if not provided
         if request_hash is None:
@@ -225,25 +228,118 @@ class APIManager:
                 request_hash = self._client.gen_request_hash(*args, **kwargs)
             except Exception as exc:
                 err_type = type(exc)
-                raise err_type("Failed to generate request hash: {}".format(exc.message))
+                raise err_type("Failed to generate request hash: {}".format(exc))
         # If request hash in cache, return cached response
         # NOTE: Must use `check` here instead of `get` -> check for None value, because
         # in certain cases None may be a valid cached value for a request hash.
         if self.cache.check(request_hash):
             return self.cache.get(request_hash)
+        # Update state if required
+        if self._update_state_before_request:
+            self.update_state()
         # Generate remaining requests in interval
         remaining_requests = self.gen_remaining_requests()
-        rate_limit_reached = False
         # If requests remaining in interval
         if remaining_requests > 0:
             # Attempt API request
-            response = self._make_request(rate_limit_reached, *args, **kwargs)
+            try:
+                response = self._make_request(request_hash, *args, **kwargs)
+            except RateLimitReachedError:
+                remaining_requests = 0
         # If ran out of API requests or API client signalled the rate limit was reached
-        if remaining_requests == 0 or rate_limit_reached:
+        if remaining_requests == 0:
             # Sleep until the next interval
             self._defer_until_next_interval()
             # Re-submit API request
             return self.request(*args, request_hash=request_hash, **kwargs)
         # Otherwise, return response
-        else:
-            return response
+        return response
+
+
+if os.environ.get("ENVIRONMENT") == "TEST":
+    import random
+    import unittest
+
+    from lc_cache import HashmapCache
+
+
+    class MockAPIClient(APIClient):
+        """Mock API client to mimic a simple JSON API with a rate limit endpoint.
+
+        Endpoints are:
+            + /api/v1/rate_limit        => number of requests remaining for current interval
+            + /api/v1/person/<name>     => information about a person
+            + /api/v1/location/<name>   => information about a location
+        """
+
+        def request(self, url: str, rate_limit_reached: bool = False) -> Any:   # pylint: disable=W0221
+            endpoint = url[url.rfind("/")+1:]
+            prefix_path = url[:url.rfind("/")]
+            if url == "/api/v1/rate_limit":
+                if rate_limit_reached:
+                    raise RateLimitReachedError
+                return dict(
+                    interval_start=datetime.utcnow().timestamp(),
+                    requests_remaining=random.randrange(100, 500)
+                )
+            if prefix_path == "/api/v1/person":
+                return dict(
+                    name=endpoint,
+                    age=random.randrange(18, 60),
+                    occupation=random.choice(["Accountant", "Consultant", "Lawyer", "Actor/Actress"]),
+                )
+            if prefix_path == "/api/v1/location":
+                return dict(
+                    name=endpoint,
+                    country=random.choice(["USA", "Uganda", "Spain"]),
+                )
+            raise ValueError("Invalid API endpoint: {}".format(url))
+
+
+    class MockAPIManager(APIManager):
+        """Mock API manager that implements an update_state method to fetch rate limit
+        from API endpoint defined in MockAPIClient.
+        """
+
+        def update_state(self):
+            rate_limit = self._client.request("/api/v1/rate_limit")
+            self._start_time = rate_limit.get("interval_start")
+            self._count = rate_limit.get("requests_remaining")
+
+
+    class TestAPIManager(unittest.TestCase):
+        """Test APIManager methods."""
+
+        def setUp(self) -> None:
+            # Mock API limits 500 requests/hour
+            self.api_limit_interval = 3600
+            self.api_limit_interval_buffer = 2
+            self.api_limit_threshold = 500
+
+        def gen_api_manager(self) -> APIManager:
+            return APIManager(self.api_limit_interval,
+                              self.api_limit_threshold,
+                              MockAPIClient(),
+                              HashmapCache(),
+                              interval_buffer=self.api_limit_interval_buffer)
+
+        def test_cache_api_response(self):
+            api_manager = self.gen_api_manager()
+            request_url = "/api/v1/person/peter"
+            parameters_hash = api_manager._client.gen_request_hash(request_url)
+            api_manager.request(request_url)
+            self.assertTrue(api_manager.cache.check(parameters_hash))
+
+        def test_no_requests_all_remaining(self):
+            api_manager = self.gen_api_manager()
+            self.assertEqual(self.api_limit_threshold, api_manager.gen_remaining_requests())
+            self.assertEqual(self.api_limit_interval + self.api_limit_interval_buffer,
+                             api_manager.gen_remaining_time())
+
+        def test_errant_start_time(self):
+            api_manager = self.gen_api_manager()
+            # Artificially set start time to be 20 seconds from now
+            api_manager.reset_state()
+            api_manager._start_time = datetime.utcnow().timestamp() + 20
+            # Set mock datetime.utcnow() as 20 seconds from now
+            self.assertRaises(ValueError, api_manager.gen_remaining_time)
