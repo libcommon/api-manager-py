@@ -40,7 +40,12 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="PACKAGE_CODE_URL",
+    project_urls={
+        "Issue Tracker": "PACKAGE_CODE_URL/issues",
+        "Releases": "PACKAGE_CODE_URL/releases"
+    },
     packages=setuptools.find_packages(),
+    install_requires=["lc-cache"],
     classifiers=[
         "Intended Audience :: Developers",
         "Programming Language :: Python :: 3",
