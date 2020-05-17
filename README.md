@@ -39,8 +39,8 @@ Do _not_ change the name of the file after downloading, as Pip requires a specif
 
 ## Dependencies
 
-`api-manager-py` depends on the [lc-cache](https://pypi.org/project/lc-cache/) for caching API responses. Only Python versions
->= 3.6 are officially supported.
+`api-manager-py` depends on the [lc-cache](https://pypi.org/project/lc-cache/) for caching API responses. Only Python
+versions >= 3.6 are officially supported.
 
 ## Getting Started
 
