@@ -341,5 +341,4 @@ if os.environ.get("ENVIRONMENT") == "TEST":
             # Artificially set start time to be 20 seconds from now
             api_manager.reset_state()
             api_manager._start_time = datetime.utcnow().timestamp() + 20
-            # Set mock datetime.utcnow() as 20 seconds from now
             self.assertRaises(ValueError, api_manager.gen_remaining_time)
