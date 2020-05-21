@@ -76,7 +76,7 @@ class APIManager:
         self._start_time: Optional[float] = None
         self.update_state()
 
-    def update_state(self):  # pylint: disable=R0201
+    def update_state(self) -> None:     # pylint: disable=R0201
         """
         Args:
             N/A

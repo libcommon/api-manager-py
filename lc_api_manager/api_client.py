@@ -41,6 +41,7 @@ class RateLimitReachedError(ConnectionError):
 
 class APIClient:
     """Interface for API clients to use with an APIManager."""
+    __slots__ = ()
 
     def gen_request_hash(self, *args, **kwargs) -> Any: # pylint: disable=R0201
         """
@@ -58,7 +59,7 @@ class APIClient:
         """
         return hash((gen_python_hash(args), gen_python_hash(kwargs)))
 
-    def process_response_for_cache(self, response: Optional[Any]):  # pylint: disable=R0201
+    def process_response_for_cache(self, response: Optional[Any]) -> Any:   # pylint: disable=R0201
         """
         Args:
             response    => API response
