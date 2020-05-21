@@ -38,7 +38,7 @@ PACKAGE_VERSION="${1}"
 shift 1
 PACKAGE_NAME="lc_api_manager"
 PACKAGE_DESCRIPTION="Python library for managing requests to APIs with rate limits"
-PACKAGE_CODE_URL="https:\/\/github.com/libcommon\/api-manager-py"
+PACKAGE_CODE_URL="https:\/\/github.com\/libcommon\/api-manager-py"
 PACKAGE_MIN_PYTHON_VERSION="3.6"
 
 BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
