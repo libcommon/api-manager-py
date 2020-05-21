@@ -84,5 +84,3 @@ class APIClient:
             N/A
         Raises:
             RateLimitReachedError: if API signals that rate limit has been reached
-        """
-        raise NotImplementedError("request not implemented for type {}".format(type(self).__name__))
